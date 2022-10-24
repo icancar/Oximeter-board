@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include "macros.h"
+#include "stdbool.h"
 
 /* Extern functions */
 //extern void measureFxn(UArg arg0, UArg arg1);
@@ -49,6 +50,9 @@ Char diodeStack[1 * TASKSTACKSIZE];
 Semaphore_Struct semMeasureStruct;
 Semaphore_Handle semMeasure;
 
+Semaphore_Struct semDiodeStruct;
+Semaphore_Handle semDiode;
+
 Semaphore_Struct semBPMStruct;
 Semaphore_Handle semBPM;
 
@@ -64,6 +68,8 @@ typedef struct BeatsPerMinute {
     Queue_Elem elem;
     int bpm;
 } BPM;
+
+int beatsPerMinuteDiode;
 
 /* I2C global variables */
 I2C_Handle i2c;
@@ -152,6 +158,10 @@ void semaphoreInitialization(){
     Semaphore_Params_init(&semaphoreParams);
     Semaphore_construct(&semBPMStruct, 0, &semaphoreParams);
     semBPM = Semaphore_handle(&semBPMStruct);
+
+    Semaphore_Params_init(&semaphoreParams);
+    Semaphore_construct(&semDiodeStruct, 0, &semaphoreParams);
+    semDiode = Semaphore_handle(&semDiodeStruct);
 }
 
 void queueInitialization(){
@@ -287,21 +297,31 @@ void heartbeatFxn(UArg arg0, UArg arg1){
 }
 
 void printFxn(UArg arg0, UArg arg1){
+        int isDiodeFxnStarted = 0;
         while(1)
         {
                 BPM *beats;
                 Semaphore_pend(semBPM, BIOS_WAIT_FOREVER);
                 beats = (BPM *)Queue_get(queueBPM);
+                beatsPerMinuteDiode = beats->bpm;
                 System_printf("BPM: %d\n", beats->bpm);
                 System_flush();
+                if(isDiodeFxnStarted == 0){
+                    Semaphore_post(semDiode);
+                    isDiodeFxnStarted = 1;
+                }
                 free(beats);
         }
 }
 
 void diodeFxn(UArg arg0, UArg arg1)
 {
+    Semaphore_pend(semDiode, BIOS_WAIT_FOREVER);
     while (1) {
-           Task_sleep((UInt)500);
+           double beatsOld = beatsPerMinuteDiode - beatsPerMinuteDiode%10;
+           double sleepTime = 1000 / ((beatsOld / 60) * 2);
+           //int sleepingTime = (int)sleepTime;
+           Task_sleep((UInt)sleepTime);
            GPIO_toggle(Board_LED1);
        }
 }
